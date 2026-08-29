@@ -18,6 +18,12 @@ sky:
     port: 6379
     password: 123456
     database: 0
+  ai:
+    # 智谱 AI 的 OpenAI 兼容接口（glm-4-flash 免费额度可用），也可替换为 DeepSeek、通义等
+    base-url: https://open.bigmodel.cn/api/paas/v4
+    model: glm-4-flash
+    # 在此填入你的大模型 API Key，未填时智能助手接口会返回友好提示
+    api-key: YOUR_AI_API_KEY
   wechat:
     appid: wxf2d621799e82b7d2
     secret: 330597d5d7360278a7764fd92326aab6

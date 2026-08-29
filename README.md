@@ -77,6 +77,54 @@ nginx.exe
 - `/user/ → http://localhost:8080/user/`
 - `/ws/   → WebSocket 来单提醒`
 
+## AI 智能助手（Agent 功能）
+
+在原有架构（Controller → Service → Mapper）内新增了两个 AI 能力，接口文档见 Knife4j 的「AI 智能助手相关接口」分组：
+
+### 1. 智能运营助手（Tool-Calling Agent）
+
+`POST /admin/ai/agent/chat`，请求体 `{"sessionId": "xxx", "message": "今天生意怎么样？"}`
+
+核心是一个「模型 ↔ 工具」循环（ReAct 思想）：大模型收到用户问题后自主决定是否调用店内工具，服务端执行真实业务查询并把结果回填给模型，直到模型给出最终回答。已实现的工具全部复用现有业务层：
+
+| 工具 | 数据来源 |
+| --- | --- |
+| `query_today_business_data` 营业额/客单价/新增用户 | `WorkspaceService.getBusinessData` |
+| `query_sales_top10` 近 30 天销量榜 | `OrderMapper.getSalesTop10` |
+| `search_dishes` 菜品关键词检索 | `DishMapper.list` |
+| `query_today_order_statistics` 订单统计 | `OrderMapper.countByMap` |
+
+- 多轮上下文按 `sessionId` 存放在 Redis（`ai:agent:history:{sessionId}`，2 小时过期）
+- 返回值中的 `toolTrace` 记录了本轮 Agent 实际调用了哪些工具及结果，便于调试与展示
+- 未配置 API Key 时接口返回友好提示，不影响其他功能
+
+### 2. AI 菜品文案生成
+
+`POST /admin/ai/dish/copywriting`，请求体 `{"dishId": 46}`，按菜品名称与价格生成一条 30 字内的售卖文案。
+
+### 配置
+
+`application-dev.yml`：
+
+```yaml
+sky:
+  ai:
+    base-url: https://open.bigmodel.cn/api/paas/v4   # OpenAI 兼容地址（智谱 GLM 示例）
+    model: glm-4-flash                                # 也可换 DeepSeek、通义等
+    api-key: YOUR_AI_API_KEY                          # 填入你的大模型 API Key
+```
+
+### 没有 API Key 时如何联调
+
+仓库自带一个 Mock 大模型服务器（模拟 OpenAI 接口 + 固定 tool_calls 脚本），可完整跑通 Agent 工具调用链路：
+
+```bash
+node docs/mock-llm-server.js
+java -jar sky-server/target/sky-server-1.0-SNAPSHOT.jar \
+     --sky.ai.base-url=http://localhost:18080/v1 \
+     --sky.ai.api-key=test-key --sky.ai.model=mock-model
+```
+
 ## 主要业务流程速览
 
 1. **管理端登录**：密码 MD5 校验 → 生成 JWT → 后续请求经 `JwtTokenAdminInterceptor` 校验，员工 id 存入 ThreadLocal 供公共字段自动填充使用。

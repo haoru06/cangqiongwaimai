@@ -62,5 +62,10 @@ sky:
     refundNotifyUrl: ${sky.wechat.refundNotifyUrl}
   shop:
     address: 华南农业大学汇景北门
+  ai:
+    # 大模型 OpenAI 兼容接口地址（智谱 GLM 示例）
+    base-url: ${sky.ai.base-url}
+    model: ${sky.ai.model}
+    api-key: ${sky.ai.api-key}
   baidu:
     ak: zqPqcv2BqgW0UXEos7PLM0mTU5s4fnM8
