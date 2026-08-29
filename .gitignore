@@ -1,0 +1,22 @@
+# Virtual environments
+.venv/
+venv/
+
+# Tooling / generated analysis data
+.ua/
+
+# Logs and temp
+*.log
+nginx-1.20.2/logs/
+qianduan/nginx-1.20.2/logs/
+qianduan/nginx-1.20.2/temp/
+
+# IDE
+.idea/
+*.iml
+
+# Node
+node_modules/
+
+# Java build output
+target/

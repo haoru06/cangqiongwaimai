@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="en" style="color-scheme: dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cangqiong Take-Out Architecture Walkthrough</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: { extend: { colors: {
+        wt: { bg: '#000000', surface: '#0a0a0a', raised: '#141414', border: '#2a2a2a', fg: '#ffffff', muted: '#a0a0a0', accent: '#a855f7', file: '#c084fc', red: '#ef4444' },
+        node: { component: '#a855f7', composable: '#7c3aed', utility: '#6d28d9', external: '#525252', event: '#d8b4fe', data: '#9333ea' }
+      }}
+    };
+  </script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    html, body, #root { margin: 0; width: 100%; height: 100%; background: #000; color: #fff; }
+    body { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; overflow: hidden; }
+    button { font: inherit; }
+    .page-header { position: fixed; inset: 0 0 auto; z-index: 20; padding: 20px 28px 42px; background: linear-gradient(#000 0%, rgba(0,0,0,.92) 62%, transparent 100%); pointer-events: none; }
+    .page-header h1 { margin: 0; font-size: 18px; letter-spacing: .01em; font-weight: 700; }
+    .page-header p { margin: 5px 0 0; color: #a0a0a0; font-size: 12px; }
+    .summary { position: fixed; top: 70px; left: 28px; z-index: 22; max-width: 500px; }
+    .summary-pill, .summary-card { border: 1px solid #2a2a2a; background: rgba(10,10,10,.86); backdrop-filter: blur(14px); box-shadow: 0 18px 60px rgba(0,0,0,.45); cursor: pointer; }
+    .summary-pill { padding: 8px 12px; border-radius: 999px; color: #c084fc; font-size: 11px; }
+    .summary-card { padding: 14px 16px; border-radius: 10px; color: #a0a0a0; font-size: 13px; line-height: 1.65; }
+    .summary-card strong { color: #fff; }
+    .diagram-viewport { width: 100%; height: 100%; overflow: hidden; cursor: grab; }
+    .diagram-viewport:active { cursor: grabbing; }
+    .diagram-canvas { display: inline-block; padding: 120px 90px 100px; transform-origin: top left; will-change: transform; }
+    .mermaid-wrap svg { max-width: none !important; height: auto !important; overflow: visible; }
+    .mermaid-wrap .node { cursor: pointer; }
+    .mermaid-wrap .node:hover rect, .mermaid-wrap .node:hover polygon, .mermaid-wrap .node:hover circle, .mermaid-wrap .node:hover .label-container { filter: brightness(1.3); transition: filter .15s; }
+    .mermaid-wrap .cluster rect { fill: rgba(10,10,10,.8) !important; stroke: #7c3aed !important; }
+    .mermaid-wrap .cluster-label text, .mermaid-wrap .edgeLabel text, .mermaid-wrap .label text { fill: #fff !important; }
+    .mermaid-wrap .edgeLabel rect { fill: #000 !important; opacity: .92; }
+    .detail-panel { position: fixed; top: 16px; right: 16px; bottom: 16px; z-index: 30; width: min(560px, calc(100vw - 32px)); display: flex; flex-direction: column; overflow: hidden; border: 1px solid #2a2a2a; border-radius: 14px; background: #0a0a0a; box-shadow: 0 24px 90px rgba(0,0,0,.7); }
+    .detail-scroll { overflow-y: auto; padding: 22px; }
+    .detail-close { position: absolute; top: 12px; right: 12px; width: 30px; height: 30px; border: 1px solid #2a2a2a; border-radius: 7px; background: #141414; color: #a0a0a0; cursor: pointer; }
+    .detail-close:hover { border-color: #ef4444; background: #ef4444; color: #fff; }
+    .detail-title { margin: 0 40px 12px 0; font-size: 20px; line-height: 1.25; }
+    .detail-body p { margin: 0 0 14px; color: #a0a0a0; font-size: 13px; line-height: 1.7; }
+    .detail-body code, .file-list { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+    .code-block { margin: 10px 0 18px; padding: 14px 16px; overflow-x: auto; border: 1px solid #2a2a2a; border-radius: 9px; background: #000 !important; font-size: 12px; line-height: 1.6; }
+    .code-block code { color: #e0e0e0; white-space: pre; }
+    .file-section { padding-top: 14px; border-top: 1px solid #2a2a2a; }
+    .file-label { margin-bottom: 7px; color: #a0a0a0; font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+    .file-list { color: #c084fc; font-size: 12px; line-height: 1.7; }
+    .control-bar { position: fixed; left: 22px; bottom: 20px; z-index: 20; display: flex; align-items: center; gap: 6px; padding: 6px; border: 1px solid #2a2a2a; border-radius: 9px; background: rgba(10,10,10,.9); box-shadow: 0 12px 30px rgba(0,0,0,.35); }
+    .control-bar button { min-width: 31px; height: 28px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: #a0a0a0; cursor: pointer; font-size: 12px; }
+    .control-bar button:hover { border-color: #2a2a2a; background: #141414; color: #fff; }
+    .zoom-value { min-width: 48px; color: #a0a0a0; text-align: center; font-size: 11px; }
+    .legend { position: fixed; left: 50%; bottom: 20px; z-index: 20; display: flex; gap: 15px; transform: translateX(-50%); padding: 9px 13px; border: 1px solid #2a2a2a; border-radius: 9px; background: rgba(10,10,10,.9); box-shadow: 0 12px 30px rgba(0,0,0,.35); }
+    .legend-item { display: flex; align-items: center; gap: 6px; color: #a0a0a0; font-size: 11px; white-space: nowrap; }
+    .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .hint { position: fixed; right: 22px; bottom: 24px; z-index: 20; color: #666; font-size: 10px; }
+    kbd { padding: 2px 5px; border: 1px solid #2a2a2a; border-radius: 4px; background: #0a0a0a; color: #a0a0a0; }
+    @media (max-width: 700px) {
+      .page-header { padding-left: 16px; }
+      .summary { top: 64px; left: 16px; right: 16px; }
+      .summary-card { max-width: none; }
+      .diagram-canvas { padding: 110px 40px 90px; }
+      .legend { left: 16px; right: 16px; justify-content: center; transform: none; overflow-x: auto; }
+      .hint { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="module">
+    import { createHighlighter } from 'https://cdn.jsdelivr.net/npm/shiki@3.22.0/+esm';
+
+    const { createElement: h, useState, useEffect, useRef, useCallback } = React;
+
+    const SUMMARY = 'Cangqiong Take-Out is a Spring Boot multi-module backend behind Nginx. Admin and WeChat user clients share a service layer for catalog, user state, order lifecycle, payment callbacks, real-time notifications, and operational reporting.';
+
+    const DIAGRAM = `graph LR
+      subgraph edge["Delivery Edge"]
+        mavenReactor["Maven Reactor"]
+        nginxEdge["Nginx Edge"]
+      end
+      subgraph core["Application Core"]
+        springBootRuntime["Spring Boot Runtime"]
+        loginFlows["Login & Token Issuance"]
+        jwtAuthenticationBoundary["JWT Boundary"]
+        catalogBrowsingCache["Catalog & Cache"]
+        userStatePersistence["Cart & Address State"]
+      end
+      subgraph orders["Order Operations"]
+        orderEntryPoints["User & Admin Order Entry"]
+        orderLifecycleService["Order Lifecycle"]
+        paymentCallbackFlow["WeChat Payment Callback"]
+        asyncNotifications["WebSocket & Scheduled Events"]
+      end
+      subgraph insight["Operational Insight"]
+        reportingWorkspace["Dashboard & Reports"]
+      end
+
+      mavenReactor -->|builds| springBootRuntime
+      nginxEdge -->|proxies| springBootRuntime
+      springBootRuntime -->|starts| loginFlows
+      loginFlows -->|issues tokens| jwtAuthenticationBoundary
+      jwtAuthenticationBoundary -->|protects| catalogBrowsingCache
+      jwtAuthenticationBoundary -->|scopes| userStatePersistence
+      catalogBrowsingCache -->|feeds| userStatePersistence
+      userStatePersistence -->|prepares| orderEntryPoints
+      orderEntryPoints -->|delegates| orderLifecycleService
+      paymentCallbackFlow -->|confirms payment| orderLifecycleService
+      orderLifecycleService -->|writes state| reportingWorkspace
+      orderLifecycleService -->|emits events| asyncNotifications
+      asyncNotifications -->|updates| reportingWorkspace
+      click mavenReactor nodeClickHandler "View details"
+      click nginxEdge nodeClickHandler "View details"
+      click springBootRuntime nodeClickHandler "View details"
+      click loginFlows nodeClickHandler "View details"
+      click jwtAuthenticationBoundary nodeClickHandler "View details"
+      click catalogBrowsingCache nodeClickHandler "View details"
+      click userStatePersistence nodeClickHandler "View details"
+      click orderEntryPoints nodeClickHandler "View details"
+      click orderLifecycleService nodeClickHandler "View details"
+      click paymentCallbackFlow nodeClickHandler "View details"
+      click asyncNotifications nodeClickHandler "View details"
+      click reportingWorkspace nodeClickHandler "View details"
+      classDef component fill:#a855f7,stroke:#c084fc,color:#fff
+      classDef composable fill:#7c3aed,stroke:#a78bfa,color:#fff
+      classDef utility fill:#6d28d9,stroke:#8b5cf6,color:#fff
+      classDef external fill:#525252,stroke:#737373,color:#fff
+      classDef event fill:#d8b4fe,stroke:#e9d5ff,color:#000
+      classDef data fill:#9333ea,stroke:#a855f7,color:#fff
+      class mavenReactor,springBootRuntime component
+      class nginxEdge external
+      class loginFlows,orderEntryPoints event
+      class jwtAuthenticationBoundary,catalogBrowsingCache,orderLifecycleService,reportingWorkspace composable
+      class userStatePersistence,asyncNotifications data
+      class paymentCallbackFlow external`;
+
+    const NODES = {
+      mavenReactor: {
+        title: 'Maven Reactor',
+        description: 'The root Maven project aggregates the three backend modules and centralizes their dependency versions. It is the build-level map that turns shared code and the executable server into one application.',
+        files: ['sky-take-out/pom.xml'],
+        code: `<modules>\n    <module>sky-common</module>\n    <module>sky-pojo</module>\n    <module>sky-server</module>\n</modules>`,
+        lang: 'xml'
+      },
+      nginxEdge: {
+        title: 'Nginx Edge',
+        description: 'Nginx serves the built admin frontend and translates public paths to backend routes. It also upgrades the /ws/ connection so the admin console can receive live order events.',
+        files: ['qianduan/nginx-1.20.2/conf/nginx.conf'],
+        code: `location /api/ {\n    proxy_pass http://localhost:8080/admin/;\n}`,
+        lang: 'nginx'
+      },
+      springBootRuntime: {
+        title: 'Spring Boot Runtime',
+        description: 'SkyApplication starts the com.sky application and enables transactions, caching, and scheduled work. Configuration classes attach MVC, JWT, Redis, OSS, WebSocket, and API documentation capabilities around the service layer.',
+        files: ['sky-take-out/sky-server/src/main/java/com/sky/SkyApplication.java', 'sky-take-out/sky-server/src/main/java/com/sky/config/'],
+        code: `@SpringBootApplication\n@EnableTransactionManagement\n@EnableCaching\n@EnableScheduling\npublic class SkyApplication {`,
+        lang: 'java'
+      },
+      loginFlows: {
+        title: 'Login & Token Issuance',
+        description: 'Admin login validates an employee and issues an admin JWT; WeChat login exchanges a mini-program code for an openid, creates a user when needed, and issues a user JWT. Both flows establish the identity used by later requests.',
+        files: ['sky-take-out/sky-server/src/main/java/com/sky/controller/admin/EmployeeController.java', 'sky-take-out/sky-server/src/main/java/com/sky/controller/user/UserController.java', 'sky-take-out/sky-server/src/main/java/com/sky/service/impl/UserServiceImpl.java'],
+        code: `Employee employee = employeeService.login(employeeLoginDTO);\nMap<String, Object> claims = new HashMap<>();\nclaims.put(JwtClaimsConstant.EMP_ID, employee.getId());\nString token = JwtUtil.createJWT(jwtProperties.getAdminSecretKey(), ...);`,
+        lang: 'java'
+      },
+      jwtAuthenticationBoundary: {
+        title: 'JWT Authentication Boundary',
+        description: 'Admin and user routes use separate interceptors and separate token names/secrets. A valid token places the employee or user ID in BaseContext; invalid tokens stop the request with HTTP 401.',
+        files: ['sky-take-out/sky-server/src/main/java/com/sky/config/WebMvcConfiguration.java', 'sky-take-out/sky-server/src/main/java/com/sky/interceptor/JwtTokenAdminInterceptor.java', 'sky-take-out/sky-server/src/main/java/com/sky/interceptor/JwtTokenUserInterceptor.java'],
+        code: `registry.addInterceptor(jwtTokenAdminInterceptor)\n        .addPathPatterns("/admin/**")\n        .excludePathPatterns("/admin/employee/login");`,
+        lang: 'java'
+      },
+      catalogBrowsingCache: {
+        title: 'Catalog & Cache',
+        description: 'User catalog requests read categories, dishes, flavors, and setmeals through service and mapper layers. Redis and Spring Cache absorb repeated menu reads, while admin mutations evict the affected cache entries.',
+        files: ['sky-take-out/sky-server/src/main/java/com/sky/controller/user/DishController.java', 'sky-take-out/sky-server/src/main/java/com/sky/controller/user/SetmealController.java', 'sky-take-out/sky-server/src/main/java/com/sky/config/RedisConfiguration.java'],
+        code: `String key = "dish_" + categoryId;\nList<DishVO> list = (List<DishVO>) redisTemplate.opsForValue().get(key);\nlist = dishService.listWithFlavor(dish);\nredisTemplate.opsForValue().set(key, list);`,
+        lang: 'java'
+      },
+      userStatePersistence: {
+        title: 'Cart & Address State',
+        description: 'Shopping cart and address book data is scoped to the current user from BaseContext. This state is the input to checkout: the cart supplies line items and the selected address supplies delivery and contact data.',
+        files: ['sky-take-out/sky-server/src/main/java/com/sky/service/impl/ShoppingCartServiceImpl.java', 'sky-take-out/sky-server/src/main/java/com/sky/service/impl/AddressBookServiceImpl.java', 'sky-take-out/sky-server/src/main/resources/mapper/ShoppingCartMapper.xml'],
+        code: `public List<ShoppingCart> showShoppingCart() {\n    return shoppingCartMapper.list(ShoppingCart.builder()\n        .userId(BaseContext.getCurrentId()).build());\n}`,
+        lang: 'java'
+      },
+      orderEntryPoints: {
+        title: 'User & Admin Order Entry',
+        description: 'The user controller exposes submit, payment, history, cancel, repeat, and reminder actions. The admin controller exposes search, confirm, reject, cancel, delivery, and complete actions, all delegating to one OrderService.',
+        files: ['sky-take-out/sky-server/src/main/java/com/sky/controller/user/OrderController.java', 'sky-take-out/sky-server/src/main/java/com/sky/controller/admin/OrderController.java'],
+        code: `@PutMapping("/payment")\npublic Result<OrderPaymentVO> payment(@RequestBody OrdersPaymentDTO dto)\n        throws Exception {\n    return Result.success(orderService.payment(dto));\n}`,
+        lang: 'java'
+      },
+      orderLifecycleService: {
+        title: 'Order Lifecycle',
+        description: 'OrderServiceImpl creates an unpaid order, accepts successful payment, and enforces the operational progression from awaiting confirmation to confirmed, delivery, and completed. Cancellation and refund paths are handled in the same service boundary.',
+        files: ['sky-take-out/sky-server/src/main/java/com/sky/service/impl/OrderServiceImpl.java', 'sky-take-out/sky-server/src/main/resources/mapper/OrderMapper.xml'],
+        code: `order.setNumber(String.valueOf(System.currentTimeMillis()));\norder.setUserId(userId);\norder.setStatus(Orders.PENDING_PAYMENT);\norder.setPayStatus(Orders.UN_PAID);`,
+        lang: 'java'
+      },
+      paymentCallbackFlow: {
+        title: 'WeChat Payment Callback',
+        description: 'The payment controller decrypts the WeChat callback, extracts the merchant order number, updates the order through OrderService, and acknowledges WeChat. The callback is outside the admin/user JWT paths, so its runtime context needs explicit verification.',
+        files: ['sky-take-out/sky-server/src/main/java/com/sky/controller/notify/PayNotifyController.java', 'sky-take-out/sky-common/src/main/java/com/sky/utils/WeChatPayUtil.java'],
+        code: `String body = readData(request);\nString plainText = decryptData(body);\nJSONObject jsonObject = JSON.parseObject(plainText);\norderService.paySuccess(outTradeNo);`,
+        lang: 'java'
+      },
+      asyncNotifications: {
+        title: 'WebSocket & Scheduled Events',
+        description: 'Payment success and user reminders broadcast events to every connected admin session. Scheduled tasks also cancel unpaid orders after 15 minutes and complete delivery-in-progress orders after the configured timeout.',
+        files: ['sky-take-out/sky-server/src/main/java/com/sky/websocket/WebSocketServer.java', 'sky-take-out/sky-server/src/main/java/com/sky/task/OrderTask.java', 'sky-take-out/sky-server/src/main/java/com/sky/task/WebSocketTask.java'],
+        code: `@ServerEndpoint("/ws/{sid}")\nprivate static Map<String, Session> sessionMap = new HashMap();\npublic void sendToAllClient(String message) {\n    sessionMap.values().forEach(session -> ...);\n}`,
+        lang: 'java'
+      },
+      reportingWorkspace: {
+        title: 'Dashboard & Reports',
+        description: 'Workspace and report services aggregate completed orders, users, dishes, and setmeals through MyBatis queries. Report export fills the bundled Excel template with recent operating data and streams it to the admin client.',
+        files: ['sky-take-out/sky-server/src/main/java/com/sky/service/impl/WorkspaceServiceImpl.java', 'sky-take-out/sky-server/src/main/java/com/sky/service/impl/ReportServiceImpl.java', 'sky-take-out/sky-server/src/main/resources/template/运营数据报表模板.xlsx'],
+        code: `Integer totalOrderCount = orderMapper.countByMap(map);\nDouble turnover = orderMapper.sumByMap(map);\nInteger validOrderCount = orderMapper.countByMap(map);`,
+        lang: 'java'
+      }
+    };
+
+    const LEGEND = [
+      { label: 'Component', color: '#a855f7' },
+      { label: 'Flow / Event', color: '#d8b4fe' },
+      { label: 'Data / Logic', color: '#9333ea' },
+      { label: 'External', color: '#525252' }
+    ];
+
+    const MERMAID_THEME = {
+      primaryColor: '#0a0a0a', primaryTextColor: '#ffffff', primaryBorderColor: '#2a2a2a',
+      lineColor: '#a0a0a0', background: '#000000'
+    };
+
+    function usePanZoom() {
+      const viewportRef = useRef(null);
+      const canvasRef = useRef(null);
+      const zoomDisplayRef = useRef(null);
+      const state = useRef({ zoom: 1, panX: 0, panY: 0 });
+      const drag = useRef({ on: false, lx: 0, ly: 0 });
+
+      const apply = useCallback(() => {
+        const s = state.current;
+        if (canvasRef.current) canvasRef.current.style.transform = `translate(${s.panX}px, ${s.panY}px) scale(${s.zoom})`;
+        if (zoomDisplayRef.current) zoomDisplayRef.current.textContent = `${Math.round(s.zoom * 100)}%`;
+      }, []);
+
+      const fitToScreen = useCallback(() => {
+        const svg = canvasRef.current?.querySelector('svg');
+        const viewport = viewportRef.current;
+        if (!svg || !viewport) return;
+        const s = state.current;
+        const vw = viewport.clientWidth;
+        const vh = viewport.clientHeight;
+        const sw = svg.getBoundingClientRect().width / s.zoom;
+        const sh = svg.getBoundingClientRect().height / s.zoom;
+        const fit = Math.max(.2, Math.min(1.6, Math.min((vw - 100) / sw, (vh - 150) / sh)));
+        s.zoom = fit;
+        s.panX = (vw - sw * fit) / 2;
+        s.panY = (vh - sh * fit) / 2 + 20;
+        apply();
+      }, [apply]);
+
+      useEffect(() => {
+        const viewport = viewportRef.current;
+        if (!viewport) return undefined;
+        const onWheel = (event) => {
+          event.preventDefault();
+          const rect = viewport.getBoundingClientRect();
+          const mx = event.clientX - rect.left;
+          const my = event.clientY - rect.top;
+          const s = state.current;
+          const factor = event.deltaY < 0 ? 1.12 : 1 / 1.12;
+          const nextZoom = Math.min(4, Math.max(.2, s.zoom * factor));
+          const scale = nextZoom / s.zoom;
+          s.panX = mx - scale * (mx - s.panX);
+          s.panY = my - scale * (my - s.panY);
+          s.zoom = nextZoom;
+          apply();
+        };
+        const onPointerDown = (event) => {
+          if (event.target.closest('.node')) return;
+          drag.current = { on: true, lx: event.clientX, ly: event.clientY };
+          viewport.setPointerCapture?.(event.pointerId);
+        };
+        const onPointerMove = (event) => {
+          if (!drag.current.on) return;
+          const d = drag.current;
+          state.current.panX += event.clientX - d.lx;
+          state.current.panY += event.clientY - d.ly;
+          d.lx = event.clientX;
+          d.ly = event.clientY;
+          apply();
+        };
+        const onPointerUp = () => { drag.current.on = false; };
+        viewport.addEventListener('wheel', onWheel, { passive: false });
+        viewport.addEventListener('pointerdown', onPointerDown);
+        viewport.addEventListener('pointermove', onPointerMove);
+        viewport.addEventListener('pointerup', onPointerUp);
+        viewport.addEventListener('pointercancel', onPointerUp);
+        window.addEventListener('resize', fitToScreen);
+        return () => {
+          viewport.removeEventListener('wheel', onWheel);
+          viewport.removeEventListener('pointerdown', onPointerDown);
+          viewport.removeEventListener('pointermove', onPointerMove);
+          viewport.removeEventListener('pointerup', onPointerUp);
+          viewport.removeEventListener('pointercancel', onPointerUp);
+          window.removeEventListener('resize', fitToScreen);
+        };
+      }, [apply, fitToScreen]);
+
+      const zoomIn = useCallback(() => { state.current.zoom = Math.min(4, state.current.zoom * 1.25); apply(); }, [apply]);
+      const zoomOut = useCallback(() => { state.current.zoom = Math.max(.2, state.current.zoom / 1.25); apply(); }, [apply]);
+      return { viewportRef, canvasRef, zoomDisplayRef, zoomIn, zoomOut, fitToScreen };
+    }
+
+    function MermaidDiagram({ onNodeClick }) {
+      const ref = useRef(null);
+      useEffect(() => {
+        window.nodeClickHandler = onNodeClick;
+        mermaid.initialize({
+          startOnLoad: false,
+          theme: 'dark',
+          securityLevel: 'loose',
+          themeVariables: {
+            ...MERMAID_THEME,
+            secondaryColor: '#000000', tertiaryColor: '#000000', mainBkg: '#0a0a0a',
+            nodeBorder: '#2a2a2a', clusterBkg: 'rgba(10,10,10,.8)', clusterBorder: '#7c3aed',
+            titleColor: '#ffffff', edgeLabelBackground: '#000000'
+          },
+          flowchart: { useMaxWidth: false, htmlLabels: true, curve: 'basis' }
+        });
+        let alive = true;
+        mermaid.render(`architecture-${Date.now()}`, DIAGRAM).then(({ svg, bindFunctions }) => {
+          if (!alive || !ref.current) return;
+          ref.current.innerHTML = svg;
+          bindFunctions?.(ref.current);
+        }).catch((error) => {
+          if (ref.current) ref.current.innerHTML = `<pre class="code-block"><code>Mermaid render failed: ${String(error)}</code></pre>`;
+        });
+        return () => { alive = false; delete window.nodeClickHandler; };
+      }, [onNodeClick]);
+      return h('div', { ref, className: 'mermaid-wrap' });
+    }
+
+    function Summary({ collapsed, onToggle }) {
+      if (collapsed) return h('div', { className: 'summary summary-pill', onClick: onToggle }, 'TL;DR · click to expand');
+      return h('div', { className: 'summary summary-card', onClick: onToggle }, [
+        h('strong', { key: 'title' }, 'TL;DR'),
+        h('div', { key: 'copy' }, SUMMARY),
+        h('div', { key: 'hint', style: { marginTop: 7, color: '#666', fontSize: 10 } }, 'Click to collapse')
+      ]);
+    }
+
+    function DetailPanel({ nodeId, node, onClose, highlighted }) {
+      useEffect(() => {
+        const onKey = (event) => { if (event.key === 'Escape') onClose(); };
+        document.addEventListener('keydown', onKey);
+        return () => document.removeEventListener('keydown', onKey);
+      }, [onClose]);
+      return h('aside', { className: 'detail-panel' }, [
+        h('button', { key: 'close', className: 'detail-close', onClick: onClose, 'aria-label': 'Close details' }, '×'),
+        h('div', { key: 'body', className: 'detail-scroll' }, [
+          h('h2', { key: 'title', className: 'detail-title' }, node.title),
+          h('div', { key: 'description', className: 'detail-body' }, h('p', null, node.description)),
+          highlighted
+            ? h('div', { key: 'code', className: 'code-block', dangerouslySetInnerHTML: { __html: highlighted } })
+            : h('pre', { key: 'fallback', className: 'code-block' }, h('code', null, node.code)),
+          h('div', { key: 'files', className: 'file-section' }, [
+            h('div', { key: 'label', className: 'file-label' }, 'Source files'),
+            h('div', { key: 'list', className: 'file-list' }, node.files.map((file) => h('div', { key: file }, file)))
+          ])
+        ])
+      ]);
+    }
+
+    function Controls({ zoomDisplayRef, onZoomIn, onZoomOut, onFit }) {
+      return h('div', { className: 'control-bar' }, [
+        h('button', { key: 'out', onClick: onZoomOut, 'aria-label': 'Zoom out' }, '−'),
+        h('span', { key: 'value', ref: zoomDisplayRef, className: 'zoom-value' }, '100%'),
+        h('button', { key: 'in', onClick: onZoomIn, 'aria-label': 'Zoom in' }, '+'),
+        h('button', { key: 'fit', onClick: onFit, 'aria-label': 'Fit diagram' }, 'Fit')
+      ]);
+    }
+
+    async function createHighlights() {
+      const highlighted = {};
+      try {
+        const languages = [...new Set(Object.values(NODES).map((node) => node.lang))];
+        const highlighter = await createHighlighter({ themes: ['vitesse-dark'], langs: languages });
+        for (const [id, node] of Object.entries(NODES)) {
+          highlighted[id] = highlighter.codeToHtml(node.code, { lang: node.lang, theme: 'vitesse-dark' });
+        }
+      } catch (error) {
+        console.warn('Shiki highlighting unavailable; using fallback code blocks.', error);
+      }
+      return highlighted;
+    }
+
+    function App({ highlighted }) {
+      const [activeId, setActiveId] = useState(null);
+      const [summaryCollapsed, setSummaryCollapsed] = useState(true);
+      const pz = usePanZoom();
+      const setActiveNode = useCallback((nodeId) => {
+        setActiveId(nodeId);
+        document.querySelectorAll('.mermaid-wrap .node').forEach((node) => { node.style.opacity = nodeId ? '.35' : '1'; });
+        const selected = document.querySelector(`.mermaid-wrap .node[id*="${nodeId}"]`);
+        if (selected) selected.style.opacity = '1';
+      }, []);
+      const closeDetail = useCallback(() => {
+        setActiveId(null);
+        document.querySelectorAll('.mermaid-wrap .node').forEach((node) => { node.style.opacity = '1'; });
+      }, []);
+      useEffect(() => { const timer = setTimeout(pz.fitToScreen, 700); return () => clearTimeout(timer); }, [pz.fitToScreen]);
+      return h(React.Fragment, null, [
+        h('header', { key: 'header', className: 'page-header' }, [
+          h('h1', { key: 'title' }, 'Cangqiong Take-Out · Architecture Walkthrough'),
+          h('p', { key: 'subtitle' }, 'A clickable mental model of the current project · 12 concepts · source-anchored details')
+        ]),
+        h(Summary, { key: 'summary', collapsed: summaryCollapsed, onToggle: () => setSummaryCollapsed((value) => !value) }),
+        h('main', { key: 'viewport', ref: pz.viewportRef, className: 'diagram-viewport' },
+          h('div', { ref: pz.canvasRef, className: 'diagram-canvas' }, h(MermaidDiagram, { onNodeClick: setActiveNode }))),
+        h(Controls, { key: 'controls', zoomDisplayRef: pz.zoomDisplayRef, onZoomIn: pz.zoomIn, onZoomOut: pz.zoomOut, onFit: pz.fitToScreen }),
+        h('div', { key: 'legend', className: 'legend' }, LEGEND.map((item) => h('div', { key: item.label, className: 'legend-item' }, [
+          h('span', { key: 'dot', className: 'legend-dot', style: { background: item.color } }), item.label
+        ]))),
+        h('div', { key: 'hint', className: 'hint' }, [h('kbd', { key: 'scroll' }, 'Scroll'), ' zoom · ', h('kbd', { key: 'drag' }, 'Drag'), ' pan · click nodes']),
+        activeId && NODES[activeId] ? h(DetailPanel, { key: 'detail', nodeId: activeId, node: NODES[activeId], onClose: closeDetail, highlighted: highlighted[activeId] }) : null
+      ]);
+    }
+
+    const highlighted = await createHighlights();
+    ReactDOM.createRoot(document.getElementById('root')).render(h(App, { highlighted }));
+  </script>
+</body>
+</html>
