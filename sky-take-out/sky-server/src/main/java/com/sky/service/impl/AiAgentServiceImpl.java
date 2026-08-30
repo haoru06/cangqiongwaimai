@@ -115,6 +115,9 @@ public class AiAgentServiceImpl implements AiAgentService {
 
     @Override
     public String generateDishCopywriting(AiCopywritingDTO aiCopywritingDTO) {
+        if (!aiProperties.isConfigured()) {
+            return "AI 服务未配置：请在 application-dev.yml 的 sky.ai.api-key 中填入大模型 API Key 后重启服务";
+        }
         Dish dish = dishMapper.getById(aiCopywritingDTO.getDishId());
         if (dish == null) {
             return null;

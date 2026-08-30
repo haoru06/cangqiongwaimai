@@ -50,6 +50,6 @@ public class AiAgentController {
     public Result<String> copywriting(@RequestBody AiCopywritingDTO aiCopywritingDTO) {
         log.info("AI 菜品文案生成：{}", aiCopywritingDTO);
         String text = aiAgentService.generateDishCopywriting(aiCopywritingDTO);
-        return text == null ? Result.error("菜品不存在或 AI 服务暂不可用") : Result.success(text);
+        return text == null ? Result.error("菜品不存在") : Result.success(text);
     }
 }
