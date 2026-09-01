@@ -77,53 +77,53 @@ nginx.exe
 - `/user/ → http://localhost:8080/user/`
 - `/ws/   → WebSocket 来单提醒`
 
-## AI 智能助手（Agent 功能）
+## AI 运营能力（Agent 功能）
 
-在原有架构（Controller → Service → Mapper）内新增了两个 AI 能力，接口文档见 Knife4j 的「AI 智能助手相关接口」分组：
+AI 能力集中在 `com.sky.ai` 新包中，接口文档见 Knife4j 的「AI 运营能力相关接口」分组。原来的聊天助手和菜品文案接口已删除。
 
-### 1. 智能运营助手（Tool-Calling Agent）
+### 1. AI 值班店长：经营异常巡检 Agent
 
-`POST /admin/ai/agent/chat`，请求体 `{"sessionId": "xxx", "message": "今天生意怎么样？"}`
+管理员可以点 `POST /admin/ai/diagnosis/run` 立即巡检，系统也会在每天 14:00、21:00 自动执行。诊断先用固定 SQL 计算订单取消率、营业额、出餐耗时、配送超时和滞销菜品，再由 Agent 按异常下钻销量、取消原因和慢单证据。
 
-核心是一个「模型 ↔ 工具」循环（ReAct 思想）：大模型收到用户问题后自主决定是否调用店内工具，服务端执行真实业务查询并把结果回填给模型，直到模型给出最终回答。已实现的工具全部复用现有业务层：
+每条异常包含观测值、历史基线、影响金额、证据和建议动作。可能的动作会进入 `ai_action_proposal` 待审批表，管理员确认后才允许执行：
 
-| 工具 | 数据来源 |
-| --- | --- |
-| `query_today_business_data` 营业额/客单价/新增用户 | `WorkspaceService.getBusinessData` |
-| `query_sales_top10` 近 30 天销量榜 | `OrderMapper.getSalesTop10` |
-| `search_dishes` 菜品关键词检索 | `DishMapper.list` |
-| `query_today_order_statistics` 订单统计 | `OrderMapper.countByMap` |
+```text
+GET  /admin/ai/diagnosis/latest
+GET  /admin/ai/actions/pending
+POST /admin/ai/actions/{id}/approve
+POST /admin/ai/actions/{id}/reject
+```
 
-- 多轮上下文按 `sessionId` 存放在 Redis（`ai:agent:history:{sessionId}`，2 小时过期）
-- 返回值中的 `toolTrace` 记录了本轮 Agent 实际调用了哪些工具及结果，便于调试与展示
-- 未配置 API Key 时接口返回友好提示，不影响其他功能
+当前动作白名单为 `DISABLE_DISH` 和 `PAUSE_SHOP`。审批执行使用原有菜品和店铺业务入口，并且按 `analysisDate + actionType + targetId` 做幂等，Agent 没有直接写数据库的权限。每次运行的工具轨迹保存到 `ai_agent_run`。
 
-### 2. AI 菜品文案生成
+### 2. 自然语言取数 Agent：Text-to-SQL + SQL 沙箱
 
-`POST /admin/ai/dish/copywriting`，请求体 `{"dishId": 46}`，按菜品名称与价格生成一条 30 字内的售卖文案。
+`POST /admin/ai/query`，请求体示例：`{"question":"近 7 天销量最高的 5 个菜品是什么？"}`。
 
-### 配置
+Agent 读取数据库结构和指标口径生成 SELECT，随后进入 Druid SQL 解析沙箱。沙箱只允许单条查询、表名白名单、自动限制最多 200 行，并拒绝写操作、敏感字段和未知表。SQL 执行失败时会把错误回填给模型，最多自动修复 3 次；最终返回 SQL、列、真实查询结果、摘要和 trace。
 
-`application-dev.yml`：
+### 配置与 Mock 联调
+
+在 `application-dev.yml` 的 `sky.ai` 中配置 OpenAI 兼容接口：
 
 ```yaml
 sky:
   ai:
-    base-url: https://open.bigmodel.cn/api/paas/v4   # OpenAI 兼容地址（智谱 GLM 示例）
-    model: glm-4-flash                                # 也可换 DeepSeek、通义等
-    api-key: YOUR_AI_API_KEY                          # 填入你的大模型 API Key
+    base-url: https://your-provider.example/v1
+    model: your-model
+    api-key: YOUR_AI_API_KEY
 ```
 
-### 没有 API Key 时如何联调
-
-仓库自带一个 Mock 大模型服务器（模拟 OpenAI 接口 + 固定 tool_calls 脚本），可完整跑通 Agent 工具调用链路：
+没有 API Key 时可以使用仓库自带 Mock：
 
 ```bash
 node docs/mock-llm-server.js
 java -jar sky-server/target/sky-server-1.0-SNAPSHOT.jar \
-     --sky.ai.base-url=http://localhost:18080/v1 \
+     --sky.ai.base-url=http://localhost:18080 \
      --sky.ai.api-key=test-key --sky.ai.model=mock-model
 ```
+
+应用启动会自动创建 `ai_action_proposal`、`ai_agent_run` 两张表，也可以手动执行 `sql/ai_agent_upgrade.sql`。需要触发演示数据时，再执行 `docs/ai-demo-data.sql`。
 
 ## 主要业务流程速览
 
